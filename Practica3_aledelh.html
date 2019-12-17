@@ -1,0 +1,488 @@
+<!--PRISMA 3d
+    -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>WebGL -  TALLER DE PERSPECTIVA 1</title>
+<style>
+        body{ background-color: lightblue; }
+      canvas{ background-color: black;
+              border: 1px solid black; }
+         div{ display:block;           }
+
+</style>
+<!--**********************************************
+      SCRIPTS BIBLIOTECAS DE AYUDA PARA ROTACIONES 3D
+    ***********************************************  -->
+<script type="text/javascript" src="gl-matrix-min.js"></script>
+
+<script>
+
+  // ****************** Variables Globales
+  let   gl = null,
+        canvas = null,
+        glProgram = null,
+        fragmentShader = null,
+        vertexShader = null;
+  let   positionLocatAttrib =null,
+        colorLocatAttrib=null,
+        normalLocatAttrib = null;
+
+  let   verticeBuffer = null;
+  let   vertices=null; //coord de los vértices
+
+
+  let   verticeColors, //colores
+        colorBuffer; //buffer de colores a cada vertice
+
+  let normales = null;
+  let normalesBuffer = null;
+
+  let ratonAbajo = false;
+  let posRatonX = null;
+  let posRatonY = null;
+
+
+  let MvMatrix=null,
+      PMatrix=null;
+
+  let uMvMatrix=null, uPMatrix;
+
+  var teseracto = "./teseracto.jpg"
+
+
+
+/********************* 0. UTILIDADES **************************************/
+  /******   FunCiones de inicialización de matrices  ********* */
+
+      function inicializarMatrices(){
+      	MvMatrix=mat4.create();
+      	PMatrix=mat4.create();
+
+      	mat4.identity(MvMatrix);
+      	mat4.identity(PMatrix);
+
+      }
+/*********************** RATON Y TECLADO: Funciones de control del Movimiento y Rotación***/
+	/* Deteccion de eventos*/
+
+      function deteccionEventos(){
+      	canvas.onmousedown=pulsaRatonAbajo;
+      	document.onmouseup=pulsaRatonArriba;
+      	document.onmousemove=mueveRaton;
+      	document.onkeydown=pulsaTecla;
+      }
+     /* Gestion de ventos*/
+
+     function pulsaRatonAbajo(event) {
+        ratonAbajo = true;
+        posRatonX = event.clientX;
+        posRatonY = event.clientY;
+    }
+
+    function pulsaRatonArriba(event) {
+        ratonAbajo = false;
+    }
+
+    function mueveRaton(event) {
+        if (!ratonAbajo) {
+            return;
+        }
+        let nuevaX = event.clientX;
+        let nuevaY = event.clientY;
+        let deltaX = nuevaX - posRatonX;
+        let deltaY = nuevaY - posRatonY;
+
+        let idMatrix=mat4.create();
+
+        mat4.rotate(idMatrix,idMatrix,degToRad(deltaX/2), [0,1,0]);
+        mat4.rotate(idMatrix,idMatrix,degToRad(deltaY/2), [1,0,0]);
+
+        mat4.multiply(MvMatrix, MvMatrix,idMatrix );
+        posRatonX = nuevaX;
+        posRatonY = nuevaY;
+    }
+
+
+    function degToRad(degrees) {
+        return degrees * Math.PI / 180;
+    }
+
+    function pulsaTecla(event){
+    	var g_near=0, g_far=0;
+    	switch(event.keyCode){
+    		case 39: console.log("39");g_near += 0.01; break;  // The right arrow key was pressed
+    		case 37: g_near -= 0.01; break;  // The left arrow key was pressed
+    		case 38: g_far += 0.01;  break;  // The up arrow key was pressed
+    		case 40: g_far -= 0.01;  break;  // The down arrow key was pressed
+    		default: return; // Prevent the unnecessary drawing
+  		}
+    }
+
+
+/********************* 1. INIT WEBGL **************************************/
+function initWebGL()
+      {
+        canvas = document.getElementById("canvas");
+        gl = canvas.getContext("webgl");
+
+        if(gl)
+        {
+          setupWebGL();
+          initShaders();
+          deteccionEventos();
+          setupBuffers();
+          drawScene();
+          animacion();
+        }
+        else{
+          alert("El navegador no soporta WEBGL.");
+        }
+      }
+      /********************* 2.setupWEBGL **************************************/
+      function setupWebGL()
+      {
+        //Pone el color de fondo a verde ---para 2d no funciona
+        gl.clearColor(1.0, 1.0, 1.0, 1.0);
+
+        //Crea un viewport del tamaño del canvas
+        gl.viewport(0, 0, canvas.width, canvas.height);
+
+        // Modo ON DEPTH
+        gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+        gl.enable(gl.DEPTH_TEST);
+
+        //Inicializarmatrices de movimeinto
+        inicializarMatrices();
+
+        //gl.enable ACTIVA una serie de caracteristicas tan variadas como:
+        // a) Mezcla de colores (pordefecto está activado)
+        gl.enable(gl.BLEND);
+        // b) CullFace (me desaparecen tres triangulos o no, jugar con el CCW y EL CW)
+        gl.disable(gl.CULL_FACE);
+
+      }
+      /********************* 3. INIT SHADER **************************************/
+      function initShaders()
+      {
+       // Esta función inicializa los shaders
+
+        //1.Obtengo la referencia de los shaders
+        let fs_source = document.getElementById('fragment-shader').innerHTML;
+        let vs_source = document.getElementById('vertex-shader').innerHTML;
+
+        //2. Compila los shaders
+        vertexShader = makeShader(vs_source, gl.VERTEX_SHADER);
+        fragmentShader = makeShader(fs_source, gl.FRAGMENT_SHADER);
+
+          //3. Crea un programa
+          glProgram = gl.createProgram();
+
+        //4. Adjunta al programa cada shader
+          gl.attachShader(glProgram, vertexShader);
+          gl.attachShader(glProgram, fragmentShader);
+          gl.linkProgram(glProgram);
+
+        if (!gl.getProgramParameter(glProgram, gl.LINK_STATUS)) {
+           alert("No se puede inicializar el Programa .");
+          }
+
+        //5. Usa el programa
+        gl.useProgram(glProgram);
+      }
+     /********************* 3.1. MAKE SHADER **************************************/
+      function makeShader(src, type)
+      {
+        //Compila cada  shader
+        let shader = gl.createShader(type);
+        gl.shaderSource(shader, src);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+              alert("Error de compilación del shader: " + gl.getShaderInfoLog(shader));
+          }
+        return shader;
+      }
+
+     /********************* 4 SETUP BUFFERS  **************************************/
+      function setupBuffers()
+      {
+
+          // Create a cube
+          //    v6----- v5
+          //   /|      /|
+          //  v1------v0|
+          //  | |     | |
+          //  | |v7---|-|v4
+          //  |/      |/
+          //  v2------v3
+
+          vertices = [
+             0.5, 0.5, 0.5,  -0.5, 0.5, 0.5,  -0.5,-0.5, 0.5, // v0-v1-v2
+            -0.5,-0.5, 0.5,   0.5,-0.5, 0.5,   0.5, 0.5, 0.5, // 2-3-0
+     		     0.5, 0.5, 0.5,   0.5,-0.5, 0.5,   0.5,-0.5,-0.5, // v0-v3-v4
+             0.5, 0.5,-0.5,   0.5, 0.5, 0.5,   0.5,-0.5,-0.5, // 5-0-4
+     		     0.5, 0.5,-0.5,  -0.5, 0.5,-0.5,  -0.5, 0.5, 0.5, // v5-v6-v1
+             0.5, 0.5, 0.5,   0.5, 0.5,-0.5,  -0.5, 0.5, 0.5, // 0-5-1
+     		    -0.5, 0.5, 0.5,  -0.5, 0.5,-0.5,  -0.5,-0.5,-0.5, // v1-v6-v7
+            -0.5,-0.5, 0.5,  -0.5, 0.5, 0.5,  -0.5,-0.5,-0.5, // 2-1-7
+     		     0.5,-0.5,-0.5,   0.5,-0.5, 0.5,  -0.5,-0.5, 0.5, // v4-v3-v2
+            -0.5,-0.5,-0.5,   0.5,-0.5,-0.5,  -0.5,-0.5, 0.5, // 7-4-2
+     		    -0.5,-0.5,-0.5,  -0.5, 0.5,-0.5,   0.5, 0.5,-0.5, // v7-v6-v5
+             0.5,-0.5,-0.5,  -0.5,-0.5,-0.5,   0.5, 0.5,-0.5  // 4-7-5
+            ];
+
+         normales = [
+             0.0, 0.0, 1.0,   0.0, 0.0, 1.0,   0.0, 0.0, 1.0, //Frente
+             0.0, 0.0, 1.0,   0.0, 0.0, 1.0,   0.0, 0.0, 1.0,
+             1.0, 0.0, 0.0,   1.0, 0.0, 0.0,   1.0, 0.0, 0.0, //Derecha
+             1.0, 0.0, 0.0,   1.0, 0.0, 0.0,   1.0, 0.0, 0.0,
+             0.0, 1.0, 0.0,   0.0, 1.0, 0.0,   0.0, 1.0, 0.0, //Arriba
+             0.0, 1.0, 0.0,   0.0, 1.0, 0.0,   0.0, 1.0, 0.0,
+            -1.0, 0.0, 0.0,  -1.0, 0.0, 0.0,  -1.0, 0.0, 0.0, //Izquierda
+            -1.0, 0.0, 0.0,  -1.0, 0.0, 0.0,  -1.0, 0.0, 0.0,
+             0.0,-1.0, 0.0,   0.0,-1.0, 0.0,   0.0,-1.0, 0.0, //Abajo
+             0.0,-1.0, 0.0,   0.0,-1.0, 0.0,   0.0,-1.0, 0.0,
+             0.0, 0.0,-1.0,   0.0, 0.0,-1.0,   0.0, 0.0,-1.0, //Atras
+             0.0, 0.0,-1.0,   0.0, 0.0,-1.0,   0.0, 0.0,-1.0
+         ];
+
+         var textureCoord = [
+             0,1,0, 0,1,0, 1,1,0, 1,1,0,
+             0,0,1, 0,0,1, 1,1,0, 1,1,0,
+             0,0,0, 1,1,0, 1,1,1, 0,0,1,
+             0,1,1, 0,0,0, 1,1,1, 0,0,1,
+             0,1,0, 0,1,0, 1,1,0, 1,1,0,
+             1,1,0, 0,1,0, 0,1,0, 0,1,1
+             ];
+
+/*
+          verticeColors = [
+             1, 0, 0,   1, 0, 0,   1, 0, 0,
+    			   1, 0, 0,   1, 0, 0,   1, 0, 0,
+    			   1, 0, 0,   1, 0, 0,   1, 0, 0,
+    			   1, 0, 0,   1, 0, 0,   1, 0, 0,
+    			   1, 0, 0,   1, 0, 0,   1, 0, 0,
+    			   1, 0, 0,   1, 0, 0,   1, 0, 0,
+             1, 0, 0,   1, 0, 0,   1, 0, 0,
+             1, 0, 0,   1, 0, 0,   1, 0, 0,
+             1, 0, 0,   1, 0, 0,   1, 0, 0,
+             1, 0, 0,   1, 0, 0,   1, 0, 0,
+             1, 0, 0,   1, 0, 0,   1, 0, 0,
+             1, 0, 0,   1, 0, 0,   1, 0, 0
+           ];
+*/
+           /*Vertices*/
+
+           verticeBuffer = gl.createBuffer();
+           gl.bindBuffer(gl.ARRAY_BUFFER, verticeBuffer);
+           gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+
+           positionLocatAttrib = gl.getAttribLocation(glProgram, "aVertexPosition");
+           gl.enableVertexAttribArray(positionLocatAttrib);
+
+           gl.bindBuffer(gl.ARRAY_BUFFER, verticeBuffer);
+           gl.vertexAttribPointer(positionLocatAttrib, 3, gl.FLOAT, false, 0, 0);
+
+/*           //Colores
+
+          colorBuffer = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verticeColors), gl.STATIC_DRAW);
+
+
+          colorLocatAttrib = gl.getAttribLocation(glProgram, "aVertexColor");
+          gl.enableVertexAttribArray(colorLocatAttrib);
+          gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+          gl.vertexAttribPointer(colorLocatAttrib, 3, gl.FLOAT, false, 0, 0);
+*/
+          /*Normales*/
+
+          normalesBuffer = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, normalesBuffer);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normales), gl.STATIC_DRAW);
+
+
+          normalLocatAttrib = gl.getAttribLocation(glProgram, "aNormales");
+          gl.enableVertexAttribArray(normalLocatAttrib);
+          gl.bindBuffer(gl.ARRAY_BUFFER, normalesBuffer);
+          gl.vertexAttribPointer(normalLocatAttrib, 3, gl.FLOAT, false, 0, 0);
+
+          /*Textura*/
+
+          texture = gl.createTexture();
+          texture.image = new Image();
+          texture.image.crossOrigin = "anonymous";
+          texture.image.src = teseracto;
+          texture.image.onload = function(){ setTexture(texture); }
+
+          texture.image.src = teseracto;
+
+          texturaBuffer = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER,texturaBuffer);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(textureCoord), gl.STATIC_DRAW);
+
+          textureLocatAttrib = gl.getAttribLocation(glProgram, "aTexCoord");
+          gl.enableVertexAttribArray(textureLocatAttrib);
+          gl.bindBuffer(gl.ARRAY_BUFFER,texturaBuffer);
+
+
+          uMvMatrix = gl.getUniformLocation(glProgram, 'uMvMatrix');
+          uPMatrix = gl.getUniformLocation(glProgram, 'uPMatrix');
+
+      }
+
+/********************* Draw Scene        *********************************** */
+  function drawScene(){
+
+        /*Ambiente*/
+        var u_AmbientLight = gl.getUniformLocation(glProgram , 'u_AmbientLight');
+        gl.uniform3f(u_AmbientLight, 0.5, 0.5, 0.5);
+
+        /*Difusa*/
+        var u_DiffuseLight = gl.getUniformLocation(glProgram, 'u_DiffuseLight');
+        //Luz de color blanco
+        gl.uniform3f(u_DiffuseLight, 1, 1, 1);
+
+        var u_LightDirection = gl.getUniformLocation(glProgram, 'u_LightDirection');
+        var lightDirection = normaliza([1, 0, 0]);
+        gl.uniform3f(u_LightDirection, lightDirection[0], lightDirection[1], lightDirection[2]);
+
+        /*Especular*/
+        var u_SpecularLight = gl.getUniformLocation(glProgram, 'u_SpecularLight');
+        gl.uniform3f(u_SpecularLight, 1, 1, 1);
+        var u_brillo = gl.getUniformLocation(glProgram, 'u_brillo');
+        gl.uniform1f(u_brillo, 10);
+
+        //Esto aun no sirve, hay que usarlo si queremos luz especular de foco
+        var lightPosition = [2, 0, 2];
+        var u_Spec_position = gl.getUniformLocation(glProgram, 'u_Spec_position');
+        gl.uniform3fv(u_Spec_position, lightPosition);
+
+        /*Matrices de rotacion*/
+        gl.uniformMatrix4fv(uMvMatrix, false, MvMatrix);
+        gl.uniformMatrix4fv(uPMatrix, false, PMatrix);
+
+        gl.drawArrays(gl.TRIANGLES, 0, vertices.length)
+
+    }
+
+    function animacion(){
+
+        drawScene();
+        requestAnimationFrame(animacion);
+    }
+
+    /*********Normaliza vectores de dimension 3********/
+
+    function normaliza(vec){
+    	dest = [];
+    	var x = vec[0], y = vec[1], z = vec[2];
+    	var len = Math.sqrt(x*x + y*y + z*z);
+
+    	if (!len)
+    	{
+    		dest[0] = 0;
+    		dest[1] = 0;
+    		dest[2] = 0;
+    		return dest;
+    	} else if (len == 1)
+    	{
+    		dest[0] = x;
+    		dest[1] = y;
+    		dest[2] = z;
+    		return dest;
+    	}
+    	len = 1 / len;
+    	dest[0] = x*len;
+    	dest[1] = y*len;
+    	dest[2] = z*len;
+    	return dest;
+    }
+
+    /****************** Set Texture ********************/
+
+    function setTexture(texture){
+      gl.bindTexture(gl.TEXTURE_2D,texture);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA, gl.UNSIGNED_BYTE, texture.image );
+      // parámetros de filtrado
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      // parámetros de repetición (ccordenadas de textura mayores a uno)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
+      // creación del mipmap
+      gl.generateMipmap(gl.TEXTURE_2D);
+      //gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+
+</script>
+
+<!-- ****************   VERTEX SHADER *******************-->
+<script id="vertex-shader" type="x-shader/x-vertex">
+
+  attribute vec3 aVertexPosition;
+  attribute vec3 aVertexColor;
+  attribute vec3 aNormales;
+
+  varying highp vec4 vColor;
+
+  uniform mat4 uMvMatrix;
+  uniform mat4 uPMatrix;
+
+  uniform vec3 u_AmbientLight;
+  uniform vec3 u_DiffuseLight;
+  uniform vec3 u_LightDirection;
+  uniform vec3 u_SpecularLight;
+  //Esto no sirve aun, habra que usarlo si quiero poner foco
+  uniform vec3 u_Spec_position;
+
+  uniform float u_brillo;
+
+  void main() {
+
+     gl_Position= uPMatrix*uMvMatrix*vec4(aVertexPosition,1.0);
+
+     vec3 normal = mat3(uPMatrix*uMvMatrix) * normalize(aNormales);
+     float cosTheta = max(dot(u_LightDirection, normal), 0.0);
+
+     vec3 ambient = u_AmbientLight * aVertexColor;
+     vec3 diffuse = u_DiffuseLight * aVertexColor * cosTheta;
+
+     vec3 viewVec = vec3(0,0,1.0);
+     vec3 reflejo = reflect(u_LightDirection, normal);
+     vec3 specular = u_SpecularLight * pow(max(dot(reflejo, viewVec), 0.0), u_brillo);
+
+     gl_PointSize = 10.0;
+
+     vColor= vec4(ambient + diffuse + specular, 1.0);
+
+  }
+
+</script>
+
+<!-- ****************   FRAGMENT SHADER *******************-->
+<script id="fragment-shader" type="x-shader/x-fragment">
+
+varying  highp vec4 vColor;
+
+void main() {
+
+   gl_FragColor = vColor;
+}
+</script>
+
+
+<!-- ****************   html  ******************-->
+
+</head>
+<body onload="initWebGL()">
+<div class="description">
+  <h1> Practica 3 </h1>
+  <h3> Alejandro Del Hierro Diez </h3>
+</div>
+<canvas id="canvas" width="400" height="400"></canvas>
+
+</body>
+</html>
